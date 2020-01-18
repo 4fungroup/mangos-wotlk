@@ -51,7 +51,7 @@ UnitAI::~UnitAI()
 
 void UnitAI::MoveInLineOfSight(Unit* who)
 {
-    if (!HasReactState(REACT_AGGRESSIVE))
+    if (GetReactState() < REACT_DEFENSIVE)
         return;
 
     if (!m_unit->CanFly() && m_unit->GetDistanceZ(who) > CREATURE_Z_ATTACK_RANGE)
@@ -65,6 +65,9 @@ void UnitAI::MoveInLineOfSight(Unit* who)
 
     if (who->GetObjectGuid().IsCreature() && who->isInCombat())
         CheckForHelp(who, m_unit, 10.0);
+
+    if (!HasReactState(REACT_AGGRESSIVE)) // mobs who are aggressive can still assist
+        return;
 
     if (!m_unit->CanInitiateAttack())
         return;
@@ -239,7 +242,7 @@ void UnitAI::SetCombatMovement(bool enable, bool stopOrStartMovement /*=false*/)
 
     if (stopOrStartMovement && m_unit->getVictim())     // Only change current movement while in combat
     {
-        if (!m_unit->IsIncapacitated())
+        if (!m_unit->IsCrowdControlled())
         {
             if (enable)
                 DoStartMovement(m_unit->getVictim());
@@ -383,6 +386,10 @@ void UnitAI::CheckForHelp(Unit* who, Unit* me, float distance)
     if (me->isInCombat())
         return;
 
+    // pulling happens once panic/retreating ends
+    if (who->hasUnitState(UNIT_STAT_PANIC | UNIT_STAT_RETREATING))
+        return;
+
     if (me->GetMap()->Instanceable())
         distance = distance / 2.5f;
 
@@ -394,7 +401,7 @@ void UnitAI::CheckForHelp(Unit* who, Unit* me, float distance)
             {
                 AttackStart(victim);
                 if (who->AI() && who->AI()->GetAIOrder() == ORDER_FLEEING)
-                    who->GetMotionMaster()->InterruptFlee();
+                    who->GetMotionMaster()->InterruptPanic();
             }
         }
     }
@@ -509,16 +516,15 @@ void UnitAI::SendAIEventAround(AIEventType eventType, Unit* invoker, uint32 dela
         CreatureList receiverList;
 
         // Allow sending custom AI events to all units in range
-        if (eventType >= AI_EVENT_CUSTOM_EVENTAI_A && eventType <= AI_EVENT_CUSTOM_EVENTAI_F && eventType != AI_EVENT_GOT_CCED)
+        if (eventType >= AI_EVENT_CUSTOM_EVENTAI_A && eventType <= AI_EVENT_CUSTOM_EVENTAI_F && eventType != AI_EVENT_GOT_CCED || eventType > AI_EVENT_START_ESCORT)
         {
             MaNGOS::AnyUnitInObjectRangeCheck u_check(m_unit, radius);
             MaNGOS::CreatureListSearcher<MaNGOS::AnyUnitInObjectRangeCheck> searcher(receiverList, u_check);
             Cell::VisitGridObjects(m_unit, searcher, radius);
         }
-        else
+        else // TODO: Expand functionality in future if needed
         {
-            // Use this check here to collect only assitable creatures in case of CALL_ASSISTANCE, else be less strict
-            MaNGOS::AnyAssistCreatureInRangeCheck u_check(m_unit, eventType == AI_EVENT_CALL_ASSISTANCE ? invoker : nullptr, radius);
+            MaNGOS::AnyAssistCreatureInRangeCheck u_check(m_unit, invoker, radius);
             MaNGOS::CreatureListSearcher<MaNGOS::AnyAssistCreatureInRangeCheck> searcher(receiverList, u_check);
             Cell::VisitGridObjects(m_unit, searcher, radius);
         }
@@ -577,7 +583,7 @@ void UnitAI::DoResetThreat()
 
 bool UnitAI::CanExecuteCombatAction()
 {
-    return m_unit->CanReactInCombat() && !m_unit->hasUnitState(UNIT_STAT_DONT_TURN | UNIT_STAT_SEEKING_ASSISTANCE) && !m_unit->IsNonMeleeSpellCasted(false) && !m_combatScriptHappening;
+    return m_unit->CanReactInCombat() && !(m_unit->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SILENCED) && m_unit->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED)) && !m_unit->hasUnitState(UNIT_STAT_PROPELLED | UNIT_STAT_RETREATING) && !m_unit->IsNonMeleeSpellCasted(false) && !m_combatScriptHappening;
 }
 
 void UnitAI::SetMeleeEnabled(bool state)
@@ -615,26 +621,20 @@ void UnitAI::TimedFleeingEnded()
     DoStartMovement(m_unit->getVictim());
 }
 
-void UnitAI::DoFlee()
+bool UnitAI::DoFlee()
 {
     Unit* victim = m_unit->getVictim();
     if (!victim)
-        return;
+        return false;
 
-    // first check if its not already feared somewhere else
-    if (m_unit->isFeared() || m_unit->hasUnitState(UNIT_STAT_FLEEING))
-        return;
-
-    // now we can call the fear method
-    m_unit->SetFeared(true, victim->GetObjectGuid(), 0, sWorld.getConfig(CONFIG_UINT32_CREATURE_FAMILY_FLEE_DELAY));
-
-    // check if fear method succeed
-    if (!m_unit->isFeared() && !m_unit->hasUnitState(UNIT_STAT_FLEEING))
-        return;
+    // call the fear method and check if fear method succeed
+    if (!m_unit->SetInPanic(sWorld.getConfig(CONFIG_UINT32_CREATURE_FAMILY_FLEE_DELAY)))
+        return false;
 
     // set the ai state to feared so it can reset movegen and ai state at the end of the fear
     SetAIOrder(ORDER_FLEEING);
     SetCombatScriptStatus(true);
+    return true;
 }
 
 void UnitAI::DistancingStarted()

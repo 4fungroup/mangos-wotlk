@@ -6433,11 +6433,7 @@ bool ChatHandler::HandleMovegensCommand(char* /*args*/)
             }
             case FOLLOW_MOTION_TYPE:
             {
-                Unit* target;
-                if (unit->GetTypeId() == TYPEID_PLAYER)
-                    target = static_cast<FollowMovementGenerator<Player> const*>(*itr)->GetCurrentTarget();
-                else
-                    target = static_cast<FollowMovementGenerator<Creature> const*>(*itr)->GetCurrentTarget();
+                Unit* target = static_cast<FollowMovementGenerator const*>(*itr)->GetCurrentTarget();
 
                 if (!target)
                     SendSysMessage(LANG_MOVEGENS_FOLLOW_NULL);
@@ -6455,7 +6451,7 @@ bool ChatHandler::HandleMovegensCommand(char* /*args*/)
                 else
                     SendSysMessage(LANG_MOVEGENS_HOME_PLAYER);
                 break;
-            case FLIGHT_MOTION_TYPE:   SendSysMessage(LANG_MOVEGENS_FLIGHT);  break;
+            case TAXI_MOTION_TYPE:     SendSysMessage(LANG_MOVEGENS_FLIGHT);  break;
             case POINT_MOTION_TYPE:
             {
                 PSendSysMessage(LANG_MOVEGENS_POINT, x, y, z);

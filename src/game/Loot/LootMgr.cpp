@@ -1381,12 +1381,12 @@ void Loot::Release(Player* player)
                 {
                     Creature* creature = (Creature*)m_lootTarget;
                     SetPlayerIsNotLooting(player);
+                    updateClients = true;
 
                     if (m_isFakeLoot)
                     {
                         SendReleaseForAll();
                         creature->SetLootStatus(CREATURE_LOOT_STATUS_LOOTED);
-                        m_lootTarget->ForceValuesUpdateAtIndex(UNIT_DYNAMIC_FLAGS);
                         break;
                     }
 
@@ -1430,7 +1430,7 @@ void Loot::ShowContentTo(Player* plr)
     {
         if (static_cast<GameObject*>(m_lootTarget)->IsInUse())
         {
-            SendReleaseFor(plr);
+            plr->SendLootError(m_guidTarget, LOOT_ERROR_LOCKED);
             return;
         }
 
@@ -1676,9 +1676,6 @@ Loot::Loot(Player* player, Creature* creature, LootType type) :
         case LOOT_PICKPOCKETING:
         {
             m_clientLootType = CLIENT_LOOT_PICKPOCKETING;
-
-            if (!creature->isAlive() || player->getClass() != CLASS_ROGUE)
-                return;
 
             // setting loot right
             m_ownerSet.insert(player->GetObjectGuid());

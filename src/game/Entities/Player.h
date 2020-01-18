@@ -1066,6 +1066,10 @@ class Player : public Unit
         Creature* GetNPCIfCanInteractWith(ObjectGuid guid, uint32 npcflagmask);
         GameObject* GetGameObjectIfCanInteractWith(ObjectGuid guid, uint32 gameobject_type = MAX_GAMEOBJECT_TYPE);
 
+        ReputationRank GetReactionTo(Unit const* unit) const override;
+        ReputationRank GetReactionTo(Corpse const* corpse) const override;
+        bool IsInGroup(Unit const* other, bool party = false, bool ignoreCharms = false) const override;
+
         void ToggleAFK();
         void ToggleDND();
         bool isAFK() const { return HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_AFK); }
@@ -1175,7 +1179,7 @@ class Player : public Unit
         void ToggleTaxiDebug() { m_taxiTracker.m_debug = !m_taxiTracker.m_debug; }
 
         Taxi::Map const& GetTaxiPathSpline() const;
-        size_t GetTaxiSplinePathOffset() const;
+        int32 GetTaxiPathSplineOffset() const;
 
         void OnTaxiFlightStart(const TaxiPathEntry* path);
         void OnTaxiFlightEnd(const TaxiPathEntry* path);
@@ -1908,7 +1912,6 @@ class Player : public Unit
         void SetCanFly(bool enable) override;
         void SetFeatherFall(bool enable) override;
         void SetHover(bool enable) override;
-        void SetRoot(bool enable) override;
         void SetWaterWalk(bool enable) override;
 
         void JoinedChannel(Channel* c);
@@ -2260,7 +2263,7 @@ class Player : public Unit
         void   SaveRecallPosition();
 
         void SetHomebindToLocation(WorldLocation const& loc, uint32 area_id);
-        void GetHomebindLocation(float &x, float &y, float &z) { x = m_homebindX; y = m_homebindY; z = m_homebindZ; }
+        void GetHomebindLocation(float& x, float& y, float& z, uint32& mapId) { x = m_homebindX; y = m_homebindY; z = m_homebindZ; mapId = m_homebindMapId; }
         void RelocateToHomebind() { SetLocationMapId(m_homebindMapId); Relocate(m_homebindX, m_homebindY, m_homebindZ); }
         bool TeleportToHomebind(uint32 options = 0) { return TeleportTo(m_homebindMapId, m_homebindX, m_homebindY, m_homebindZ, GetOrientation(), options); }
 

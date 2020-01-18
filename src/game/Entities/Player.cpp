@@ -4616,22 +4616,6 @@ void Player::DeleteOldCharacters(uint32 keepDays)
     sLog.outString();
 }
 
-void Player::SetRoot(bool enable)
-{
-    WorldPacket data(enable ? SMSG_FORCE_MOVE_ROOT : SMSG_FORCE_MOVE_UNROOT, GetPackGUID().size() + 4);
-    data << GetPackGUID();
-    data << uint32(0);
-
-    if (GetMover() && GetMover()->GetTypeId() == TYPEID_PLAYER)
-    {
-        Player* pMover = (Player*)GetMover();
-        if (pMover != this)
-            pMover->GetSession()->SendPacket(data);
-    }
-
-    GetSession()->SendPacket(data);
-}
-
 void Player::SetWaterWalk(bool enable)
 {
     WorldPacket data(enable ? SMSG_MOVE_WATER_WALK : SMSG_MOVE_LAND_WALK, GetPackGUID().size() + 4);
@@ -4738,7 +4722,7 @@ void Player::BuildPlayerRepop()
     SetHealth(1);
 
     if (!GetSession()->isLogingOut())
-        SetRoot(false);
+        SendMoveRoot(false);
 
     // BG - remove insignia related
     RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SKINNABLE);
@@ -4776,7 +4760,7 @@ void Player::ResurrectPlayer(float restore_percent, bool applySickness)
         RemoveAurasDueToSpell(20584);                       // speed bonuses
     RemoveAurasDueToSpell(8326);                            // SPELL_AURA_GHOST
 
-    SetRoot(false);
+    SendMoveRoot(false);
 
     m_deathTimer = 0;
 
@@ -4833,7 +4817,7 @@ void Player::ResurrectPlayer(float restore_percent, bool applySickness)
 
 void Player::KillPlayer()
 {
-    SetRoot(true);
+    SendMoveRoot(true);
 
     SetDeathState(CORPSE);
     // SetFlag( UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_IN_PVP );
@@ -16296,6 +16280,13 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
     // load skills after InitStatsForLevel because it triggering aura apply also
     _LoadSkills(holder->GetResult(PLAYER_LOGIN_QUERY_LOADSKILLS));
 
+    // train spells by loaded skills
+    for (auto itr = mSkillStatus.begin(); itr != mSkillStatus.end(); ++itr)
+    {
+        if (itr->second.uState != SKILL_DELETED)
+            UpdateSkillTrainedSpells(uint16(itr->first), SKILL_VALUE(GetUInt32Value(PLAYER_SKILL_VALUE_INDEX(itr->second.pos))));
+    }
+
     // apply original stats mods before spell loading or item equipment that call before equip _RemoveStatsMods()
 
     // Mail
@@ -16678,6 +16669,10 @@ void Player::LoadCorpse()
         if (Corpse* corpse = GetCorpse())
         {
             ApplyModByteFlag(PLAYER_FIELD_BYTES, 0, PLAYER_FIELD_BYTE_RELEASE_TIMER, corpse && !sMapStore.LookupEntry(corpse->GetMapId())->Instanceable());
+
+            // [XFACTION]: Alter values update if detected crossfaction group interaction:
+            if (sWorld.getConfig(CONFIG_BOOL_ALLOW_TWO_SIDE_INTERACTION_GROUP) && GetGroup())
+                corpse->ForceValuesUpdateAtIndex(CORPSE_FIELD_BYTES_1);
         }
         else
         {
@@ -17213,7 +17208,6 @@ void Player::_LoadSpells(QueryResult* result)
 {
     // QueryResult *result = CharacterDatabase.PQuery("SELECT spell,active,disabled FROM character_spell WHERE guid = '%u'",GetGUIDLow());
 
-    std::vector<std::tuple<uint32, bool, bool>> spells;
     if (result)
     {
         do
@@ -19395,7 +19389,7 @@ bool Player::ActivateTaxiPathTo(std::vector<uint32> const& nodes, Creature* npc 
 
     GetSession()->SendActivateTaxiReply(ERR_TAXIOK);
 
-    GetMotionMaster()->MoveTaxiFlight();
+    GetMotionMaster()->MoveTaxi();
 
     return true;
 }
@@ -19424,13 +19418,13 @@ void Player::TaxiFlightResume(bool forceRenewMoveGen /*= false*/)
             return;
     }
 
-    GetMotionMaster()->MoveTaxiFlight();
+    GetMotionMaster()->MoveTaxi();
 }
 
 bool Player::TaxiFlightInterrupt(bool cancel /*= true*/)
 {
     // Simply pauses if bool is not set (for example, storing the flight for one reason or another)
-    if (GetMotionMaster()->GetCurrentMovementGeneratorType() == FLIGHT_MOTION_TYPE)
+    if (GetMotionMaster()->GetCurrentMovementGeneratorType() == TAXI_MOTION_TYPE)
     {
         OnTaxiFlightEject(cancel);
         GetMotionMaster()->MovementExpired();
@@ -19446,9 +19440,9 @@ const Taxi::Map& Player::GetTaxiPathSpline() const
     return m_taxiTracker.GetMap();
 }
 
-size_t Player::GetTaxiSplinePathOffset() const
+int32 Player::GetTaxiPathSplineOffset() const
 {
-    return m_taxiTracker.GetResumeWaypointIndex();
+    return int32(m_taxiTracker.GetResumeWaypointIndex());
 }
 
 void Player::OnTaxiFlightStart(const TaxiPathEntry* /*path*/)
